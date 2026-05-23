@@ -1,0 +1,345 @@
+@import "tailwindcss";
+
+:root {
+  --background: #030712; /* Deep obsidian slate */
+  --foreground: #f3f4f6; /* Soft premium white */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-ibm-plex-sans);
+  --font-mono: var(--font-jetbrains-mono);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(3, 7, 18, 0.4);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Custom scrollbar utility for sleek horizontal slides */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) rgba(3, 7, 18, 0.5);
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 5px;
+  width: 5px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: rgba(3, 7, 18, 0.5);
+  border-radius: 999px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  border: none;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(6, 182, 212, 0.5); /* Glowing cyan on hover */
+}
+
+/* Hide scrollbars where requested */
+.scrollbar-none {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Premium Animations & Glow Effects */
+@keyframes pulseGlowCyan {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(6, 182, 212, 0.2), inset 0 0 2px rgba(6, 182, 212, 0.1);
+    border-color: rgba(6, 182, 212, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.7), inset 0 0 8px rgba(6, 182, 212, 0.3);
+    border-color: rgba(6, 182, 212, 0.9);
+  }
+}
+
+@keyframes pulseGlowOrange {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(249, 115, 22, 0.2), inset 0 0 2px rgba(249, 115, 22, 0.1);
+    border-color: rgba(249, 115, 22, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.7), inset 0 0 8px rgba(249, 115, 22, 0.3);
+    border-color: rgba(249, 115, 22, 0.9);
+    transform: scale(1.02);
+  }
+}
+
+@keyframes pulseGlowPurple {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(168, 85, 247, 0.2), inset 0 0 2px rgba(168, 85, 247, 0.1);
+    border-color: rgba(168, 85, 247, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(168, 85, 247, 0.7), inset 0 0 8px rgba(168, 85, 247, 0.3);
+    border-color: rgba(168, 85, 247, 0.9);
+    transform: scale(1.02);
+  }
+}
+
+@keyframes pulseGlowGreen {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.2), inset 0 0 2px rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(16, 185, 129, 0.95), inset 0 0 10px rgba(16, 185, 129, 0.4);
+    border-color: rgba(16, 185, 129, 1);
+    transform: scale(1.03);
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes borderDance {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes gridGlow {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.25; }
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Animations Classes */
+.animate-pulse-glow-cyan {
+  animation: pulseGlowCyan 2s infinite ease-in-out;
+}
+
+.animate-pulse-glow-orange {
+  animation: pulseGlowOrange 1.6s infinite ease-in-out;
+}
+
+.animate-pulse-glow-purple {
+  animation: pulseGlowPurple 1.8s infinite ease-in-out;
+}
+
+.animate-pulse-glow-green {
+  animation: pulseGlowGreen 1.4s infinite ease-in-out;
+}
+
+.animate-float {
+  animation: float 4s infinite ease-in-out;
+}
+
+.animate-fade-in-node {
+  animation: slideInUp 0.4s forwards cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Glassmorphism Styles */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Digital Grid Background - High-tech coding blueprint style */
+.grid-bg {
+  background-color: #02040a;
+  background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
+  background-image: 
+    linear-gradient(to right, rgba(6, 182, 212, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(6, 182, 212, 0.05) 1px, transparent 1px),
+    linear-gradient(to right, rgba(6, 182, 212, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(6, 182, 212, 0.02) 1px, transparent 1px);
+  position: relative;
+}
+
+/* High-tech radial gradient vignette to focus screen elements */
+.grid-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(3, 7, 18, 0) 30%, #02040a 90%);
+  z-index: 0;
+}
+
+/* Atmospheric cyan and indigo ambient light leakage */
+.grid-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: 
+    radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.06) 0%, transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(6, 182, 212, 0.06) 0%, transparent 45%);
+  z-index: 0;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  font-family: var(--font-ibm-plex-sans), system-ui, -apple-system, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6, .font-mono {
+  font-family: var(--font-jetbrains-mono), monospace;
+}
+
+/* --- Phase 3 & 4 React Flow Obsidian Theme Override --- */
+.react-flow__renderer {
+  background-color: transparent !important;
+}
+
+.react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+/* Custom glowing React Flow handles */
+.react-flow__handle {
+  width: 7px !important;
+  height: 7px !important;
+  border-radius: 9999px !important;
+  border: 1px solid #0f172a !important;
+  transition: transform 0.2s, box-shadow 0.2s;
+  background-color: #4b5563 !important;
+}
+
+.react-flow__handle:hover {
+  transform: scale(1.4);
+}
+
+.react-flow__handle-top {
+  background-color: #22d3ee !important; /* Cyan for target */
+  box-shadow: 0 0 4px #22d3ee !important;
+}
+
+.react-flow__handle-bottom {
+  background-color: #a855f7 !important; /* Purple for source */
+  box-shadow: 0 0 4px #a855f7 !important;
+}
+
+/* Custom Zoom controls styling */
+.react-flow__controls {
+  background: rgba(15, 23, 42, 0.75) !important;
+  backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 12px !important;
+  padding: 2px !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
+  /* Premium vertical-center left positioning to prevent overlap with bottom playback bar */
+  bottom: auto !important;
+  top: 50% !important;
+  left: 16px !important;
+  transform: translateY(-50%) !important;
+}
+
+.react-flow__controls-button {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+  color: #94a3b8 !important;
+  fill: #94a3b8 !important;
+  transition: all 0.2s !important;
+  width: 24px !important;
+  height: 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__controls-button:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #22d3ee !important;
+}
+
+.react-flow__attribution {
+  display: none !important;
+}
+
+/* Animated active edge paths */
+.edge-active-sync {
+  stroke-dasharray: 8, 8;
+  animation: dashMove 12s linear infinite;
+}
+
+.edge-active-async {
+  stroke-dasharray: 6, 6;
+  animation: dashMove 16s linear infinite;
+}
+
+.edge-active-event {
+  stroke-dasharray: 4, 4;
+  animation: dashMove 8s linear infinite;
+}
+
+@keyframes dashMove {
+  from {
+    stroke-dashoffset: 200;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* --- Code Highlight Styles for Custom Editor (Phase 5) --- */
+.code-keyword { color: #f472b6; font-weight: bold; } /* pink */
+.code-string { color: #34d399; } /* green */
+.code-comment { color: #64748b; font-style: italic; } /* slate */
+.code-number { color: #fbbf24; } /* amber */
+.code-type { color: #60a5fa; } /* blue */
+.code-variable { color: #a78bfa; } /* purple */
+.code-property { color: #f43f5e; } /* rose */
+.code-tag { color: #22d3ee; } /* cyan */
+.code-meta { color: #94a3b8; } /* grey */
+
