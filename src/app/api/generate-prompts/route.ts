@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getProviderConfig } from '@/lib/providerSession';
+import { callLLM } from '@/lib/llmClient';
 
 const SYSTEM_PROMPT = `You are an Elite Principal AI Prompt Engineer and Lead Architect.
 Your task is to analyze the provided system architecture blueprint (WorkflowData JSON) and the scaling estimates (ScaleData JSON), then slice the development workflow into at least 3 distinct, progressive phases:
@@ -39,7 +40,7 @@ Guidelines:
 
 export async function POST(req: NextRequest) {
   try {
-    const { blueprint, scaleInfo, language = 'en' } = await req.json();
+    const { blueprint, scaleInfo, language = 'en', answers } = await req.json();
     const lang = language === 'th' ? 'th' : 'en';
 
     if (!blueprint) {
@@ -57,7 +58,17 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const finalSystemPrompt = SYSTEM_PROMPT + `\nAll explanations, phase titles, descriptions, AI roles, prompts, and DoD checklists inside the JSON MUST be written in ${lang === 'th' ? 'THAI' : 'ENGLISH'} language. Technical terminology can stay in English inside markdown text.`;
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: `Authentication Key for ${provider} is missing.` }), { status: 400 });
+    }
+
+    let finalSystemPrompt = SYSTEM_PROMPT + `\nAll explanations, phase titles, descriptions, AI roles, prompts, and DoD checklists inside the JSON MUST be written in ${lang === 'th' ? 'THAI' : 'ENGLISH'} language. Technical terminology can stay in English inside markdown text.`;
+
+    if (answers && Object.keys(answers).length > 0) {
+      finalSystemPrompt += `\n\nCRITICAL CONSTRAINTS (User Calibrated Business Logic):
+The user has provided the following answers to architectural business questions. You MUST incorporate these exact parameters and constraints directly into the generated prompts (especially Phase 2 and Phase 3 instructions):
+${Object.entries(answers).map(([key, val]) => `- Question Key "${key}": User specifies "${val}"`).join('\n')}`;
+    }
 
     const userPayload = `
 System Blueprint:
@@ -69,138 +80,24 @@ ${JSON.stringify(scaleInfo || {}, null, 2)}
 Generate a development breakdown plan consisting of at least 3 development phases, with copyable instructions prompts and Definition of Done checklists.
 `;
 
-    if (provider === 'openai') {
-      const openAiKey = apiKey;
-      if (!openAiKey) {
-        return new Response(JSON.stringify({ error: 'OpenAI API Key is missing. Check settings.' }), { status: 400 });
+    const { content, usage } = await callLLM({
+      provider: provider as any,
+      apiKey,
+      systemPrompt: finalSystemPrompt,
+      userMessage: userPayload,
+      jsonMode: true,
+      temperature: 0.3,
+      maxTokens: 4000
+    });
+
+    return new Response(content, {
+      headers: { 
+        'Content-Type': 'application/json',
+        'X-Prompt-Tokens': String(usage.promptTokens),
+        'X-Completion-Tokens': String(usage.completionTokens),
+        'X-Total-Tokens': String(usage.totalTokens)
       }
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openAiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: [
-            { role: 'system', content: finalSystemPrompt },
-            { role: 'user', content: userPayload }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.3,
-        }),
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `OpenAI API returned status ${response.status}`);
-      }
-
-      const resData = await response.json();
-      const content = resData.choices[0]?.message?.content;
-      const promptTokens = resData.usage?.prompt_tokens || 0;
-      const completionTokens = resData.usage?.completion_tokens || 0;
-      const totalTokens = resData.usage?.total_tokens || 0;
-      return new Response(content, {
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Prompt-Tokens': String(promptTokens),
-          'X-Completion-Tokens': String(completionTokens),
-          'X-Total-Tokens': String(totalTokens)
-        }
-      });
-    }
-
-    if (provider === 'anthropic') {
-      const claudeKey = apiKey || process.env.ANTHROPIC_API_KEY;
-      if (!claudeKey) {
-        return new Response(JSON.stringify({ error: 'Claude API Key is missing. Check settings.' }), { status: 400 });
-      }
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': claudeKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022',
-          max_tokens: 4000,
-          system: finalSystemPrompt,
-          messages: [
-            { role: 'user', content: userPayload }
-          ],
-          temperature: 0.3,
-        }),
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `Claude API returned status ${response.status}`);
-      }
-
-      const resData = await response.json();
-      const text = resData.content[0]?.text || '{}';
-      const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      const promptTokens = resData.usage?.input_tokens || 0;
-      const completionTokens = resData.usage?.output_tokens || 0;
-      const totalTokens = promptTokens + completionTokens;
-      return new Response(cleanedText, {
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Prompt-Tokens': String(promptTokens),
-          'X-Completion-Tokens': String(completionTokens),
-          'X-Total-Tokens': String(totalTokens)
-        }
-      });
-    }
-
-    if (provider === 'deepseek') {
-      const deepSeekKey = apiKey || process.env.DEEPSEEK_API_KEY;
-      if (!deepSeekKey) {
-        return new Response(JSON.stringify({ error: 'DeepSeek API Key is missing. Check settings.' }), { status: 400 });
-      }
-
-      const response = await fetch('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${deepSeekKey}`,
-        },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: [
-            { role: 'system', content: finalSystemPrompt },
-            { role: 'user', content: userPayload }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.3,
-        }),
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `DeepSeek API returned status ${response.status}`);
-      }
-
-      const resData = await response.json();
-      const content = resData.choices[0]?.message?.content || '{}';
-      const promptTokens = resData.usage?.prompt_tokens || 0;
-      const completionTokens = resData.usage?.completion_tokens || 0;
-      const totalTokens = resData.usage?.total_tokens || 0;
-      return new Response(content, {
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Prompt-Tokens': String(promptTokens),
-          'X-Completion-Tokens': String(completionTokens),
-          'X-Total-Tokens': String(totalTokens)
-        }
-      });
-    }
-
-    return new Response(JSON.stringify({ error: 'Unsupported provider' }), { status: 400 });
+    });
   } catch (error: any) {
     console.error(error);
     return new Response(JSON.stringify({ error: error.message || 'Server error generating prompts' }), {

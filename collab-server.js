@@ -1,15 +1,21 @@
 const { WebSocketServer, WebSocket } = require('ws');
 const { createHmac } = require('crypto');
 
-const PORT = 3002;
+const PORT = process.env.PORT || 3002;
 const wss = new WebSocketServer({ port: PORT });
 
 // ─── Auth Secret ───────────────────────────────────────────────────────────────
 // Set COLLAB_SECRET in your .env or environment to a strong random string.
 // Client must use the matching NEXT_PUBLIC_COLLAB_SECRET value.
 // Falls back to a hardcoded dev-only secret so the dev workflow still works
-// without configuration.
-const COLLAB_SECRET = process.env.COLLAB_SECRET || 'dev-collab-secret-2025';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const COLLAB_SECRET = process.env.COLLAB_SECRET || (IS_PRODUCTION ? null : 'dev-collab-secret-2025');
+
+if (IS_PRODUCTION && !process.env.COLLAB_SECRET) {
+  console.error('🚨 FATAL: COLLAB_SECRET environment variable is required in production!');
+  console.error('   Set a strong random secret: export COLLAB_SECRET=$(openssl rand -hex 32)');
+  process.exit(1);
+}
 
 /**
  * Validates the HMAC token sent by the client.

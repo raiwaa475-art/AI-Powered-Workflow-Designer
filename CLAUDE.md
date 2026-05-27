@@ -57,7 +57,11 @@ npm run lint
   * Enforce **Absolute State Preservation** for Agent 6: switching tabs must NOT trigger redundant prompt generations. Prompt compiler should run exactly once (or upon manual refresh request) and cache the result in context.
   * Interactive Definition of Done (DoD) checkboxes and timeline selection states must be preserved. Marking a checklist item as completed must not trigger API reload requests or reset the visual state.
 * **Session Serialization**: Ensure all newly added AI context structures (such as `promptEngineerInfo` for Agent 6) are serialized into the `SavedSession` JSON structure and saved/loaded seamlessly via session storage.
-* **Localization**: Support both Thai (`th`) and English (`en`) seamlessly across UI text, LLM logs, system alerts, and prompt generation outputs.
+* **Localization**: 
+  * Support both Thai (`th`) and English (`en`) seamlessly across UI text, LLM logs, system alerts, and prompt generation outputs.
+  * State is managed reactively via the `language` state in `AppShell.tsx` and can be toggled by the user via the custom `<TabBar />` header controls.
+* **Verification & Type Safety**:
+  * Always validate typescript compile correctness using `npx tsc --noEmit` before concluding work.
 * **Error Prevention**:
   * Safeguard all array/string manipulation against `undefined` or `null` values (e.g. check for existence of node arrays, step listings, and valid node IDs).
   * Do not call React state setters inside `useEffect` dependencies that reference the state itself (avoid infinite cascading render depth).

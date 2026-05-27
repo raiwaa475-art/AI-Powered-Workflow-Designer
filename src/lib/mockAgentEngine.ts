@@ -1,32 +1,6 @@
 import { NextRequest } from 'next/server';
+import { WorkflowNode, WorkflowLayer, WorkflowStep, WorkflowData } from '@/types';
 
-export interface WorkflowNode {
-  id: string;
-  name: string;
-  type: string;
-  description: string;
-}
-
-export interface WorkflowLayer {
-  id: 'presentation' | 'application' | 'queue' | 'data';
-  name: string;
-  nodes: WorkflowNode[];
-}
-
-export interface WorkflowStep {
-  id: string;
-  number: number;
-  title: string;
-  description: string;
-  involved_nodes: string[];
-}
-
-export interface WorkflowData {
-  title: string;
-  description: string;
-  layers: WorkflowLayer[];
-  steps: WorkflowStep[];
-}
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Aesthetic Bilingual Mock Architectures Presets
@@ -427,7 +401,7 @@ export function getMockResiliency(blueprint: any, language: 'th' | 'en') {
   return { node_risks, step_flows };
 }
 
-export function getMockScale(blueprint: any, prompt: string, language: 'th' | 'en') {
+export function getMockScale(blueprint: any, prompt: string, language: 'th' | 'en', backendStack?: string) {
   const isConcert = /concert|ticket|booking|กดบัตร|จองตั๋ว|บัตรคอนเสิร์ต/i.test(prompt);
 
   const load_estimates = [
@@ -487,8 +461,7 @@ export function getMockScale(blueprint: any, prompt: string, language: 'th' | 'e
     }
   ];
 
-  const optimization_configs = {
-    nginx: `# Nginx Web Proxy & Gateway Optimized Tuning Block
+  let nginxConfig = `# Nginx Web Proxy & Gateway Optimized Tuning Block
 events {
     worker_connections 8192;
     use epoll;
@@ -525,8 +498,9 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
     }
-}`,
-    postgres: `-- Tuning PostgreSQL Primary Engine for High Concurrent Writes
+}`;
+
+  let postgresConfig = `-- Tuning PostgreSQL Primary Engine for High Concurrent Writes
 -- Optimized for write-heavy ledger persistence logs
 
 ALTER SYSTEM SET max_connections = 600;
@@ -538,8 +512,9 @@ ALTER SYSTEM SET maintenance_work_mem = '1GB';
 # High Throughput Write Tuning
 ALTER SYSTEM SET wal_buffers = '64MB';
 ALTER SYSTEM SET checkpoint_completion_target = 0.9;
-ALTER SYSTEM SET synchronous_commit = off;    -- Decouples disk write wait from REST response!`,
-    redis: `# Redis Clustered High Performance Configuration
+ALTER SYSTEM SET synchronous_commit = off;    -- Decouples disk write wait from REST response!`;
+
+  let redisConfig = `# Redis Clustered High Performance Configuration
 # Tuned for high-density fast mutex seat-locks / presences
 
 maxmemory 3gb
@@ -550,7 +525,187 @@ appendonly yes
 appendfsync everysec
 lazyfree-lazy-eviction yes
 lazyfree-lazy-expire yes
-lazyfree-lazy-server-del yes`
+lazyfree-lazy-server-del yes`;
+
+  if (backendStack === 'go-gin') {
+    nginxConfig = `# Optimized Nginx for high-speed Go (Gin) microservices gateway
+upstream go_gin_cluster {
+    server auth-service:8080 max_fails=5 fail_timeout=5s;
+    server booking-service:8081 max_fails=5 fail_timeout=5s;
+    keepalive 256; # Keepalive connections to Go backends to eliminate socket overhead
+}
+server {
+    listen 80 reuseport;
+    location / {
+        proxy_pass http://go_gin_cluster;
+        proxy_http_version 1.1;
+        proxy_set_header Connection ""; # Clear connection header for HTTP keepalive
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}`;
+    postgresConfig = `-- Tuning PostgreSQL for Go sql.DB Pool
+-- Designed to handle concurrent connections from database/sql Go pools
+
+ALTER SYSTEM SET max_connections = 800; # Scale connections high for Go workers
+ALTER SYSTEM SET shared_buffers = '4GB';
+ALTER SYSTEM SET work_mem = '32MB';
+
+-- Recommended Go sql.DB Parameters:
+-- db.SetMaxOpenConns(600)
+-- db.SetMaxIdleConns(100)
+-- db.SetConnMaxLifetime(5 * time.Minute)
+-- db.SetConnMaxIdleTime(2 * time.Minute)`;
+    redisConfig = `# Redis cluster tuned for Go go-redis client mutex locks
+maxmemory 4gb
+maxmemory-policy allkeys-lru
+tcp-backlog 65536
+save "" # Disable background saves to eliminate I/O blocking
+# Recommended client-side Go parameters:
+# PoolSize: 200, MinIdleConns: 20, DialTimeout: 5s, ReadTimeout: 3s`;
+  } else if (backendStack === 'node-express') {
+    nginxConfig = `# Nginx configured for Node.js Express clustering proxy
+upstream node_express_cluster {
+    server express-app-1:8080;
+    server express-app-2:8080;
+    server express-app-3:8080;
+    keepalive 32;
+}
+server {
+    listen 80 reuseport;
+    # Gzip settings to reduce payload latency for heavy JSON objects
+    gzip on;
+    gzip_types application/json;
+    
+    location / {
+        proxy_pass http://node_express_cluster;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}`;
+    postgresConfig = `-- Tuning PostgreSQL for Node.js pg-pool / Sequelize
+-- Prevents connection leaks and locks under Express high event-loop concurrent flow
+
+ALTER SYSTEM SET max_connections = 300; # Keep max_connections lower to prevent PG memory exhaustion
+ALTER SYSTEM SET shared_buffers = '4GB';
+ALTER SYSTEM SET effective_cache_size = '12GB';
+
+-- Recommended pg-pool configs in Node:
+-- const pool = new Pool({ max: 50, idleTimeoutMillis: 30000, connectionTimeoutMillis: 2000 })`;
+    redisConfig = `# Redis tuned for node-redis / ioredis asynchronous clients
+maxmemory 3gb
+maxmemory-policy volatile-lru # Safe memory expiration policy for Express sessions
+# Recommended client-side Node configurations:
+# keepAlive: 5000, maxRetriesPerRequest: 3, enableOfflineQueue: false`;
+  } else if (backendStack === 'python-fastapi') {
+    nginxConfig = `# Nginx proxy gateway for Python FastAPI (Uvicorn concurrent workers)
+upstream uvicorn_app_nodes {
+    server fastapi-app:8000;
+    keepalive 64;
+}
+server {
+    listen 80 reuseport;
+    client_max_body_size 50M; # Accommodates large AI payload uploads
+
+    location / {
+        proxy_pass http://uvicorn_app_nodes;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 90; # Longer timeouts for slow generative AI requests
+    }
+}`;
+    postgresConfig = `-- Tuning PostgreSQL for Python SQLAlchemy Connection Pools
+-- Tailored to prevent PostgreSQL thread starvation from multiprocessing Uvicorn workers
+
+ALTER SYSTEM SET max_connections = 400;
+ALTER SYSTEM SET shared_buffers = '4GB';
+ALTER SYSTEM SET work_mem = '64MB';
+
+-- Recommended SQLAlchemy Engine Configurations:
+-- create_engine("db_url", pool_size=30, max_overflow=20, pool_recycle=1800, pool_pre_ping=True)`;
+    redisConfig = `# Redis configured for python redis-py client (Celery tasks buffer)
+maxmemory 3gb
+maxmemory-policy allkeys-lru
+save ""
+# Celery caching performance parameters:
+# BROKER_POOL_LIMIT = 50
+# REDIS_MAX_CONNECTIONS = 100`;
+  } else if (backendStack === 'java-springboot') {
+    nginxConfig = `# Nginx balancing cluster proxying Tomcat Spring Boot containers
+upstream spring_tomcat_cluster {
+    server spring-app-1:8080;
+    server spring-app-2:8080;
+    keepalive 128;
+}
+server {
+    listen 80 reuseport;
+    location / {
+        proxy_pass http://spring_tomcat_cluster;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffer_size 128k; # Larger buffer size to support Spring JWT request headers
+        proxy_buffers 4 256k;
+    }
+}`;
+    postgresConfig = `-- Tuning PostgreSQL database parameters for Java HikariCP
+-- High performance connection pooling defaults for Spring Boot Data JPA
+
+ALTER SYSTEM SET max_connections = 500;
+ALTER SYSTEM SET shared_buffers = '4GB';
+ALTER SYSTEM SET effective_cache_size = '12GB';
+
+-- Recommended application.properties Spring configs:
+-- spring.datasource.hikari.maximum-pool-size=150
+-- spring.datasource.hikari.minimum-idle=20
+-- spring.datasource.hikari.idle-timeout=30000
+-- spring.datasource.hikari.connection-timeout=20000`;
+    redisConfig = `# Redis configured for Spring Boot Jedis / Lettuce clients
+maxmemory 4gb
+maxmemory-policy allkeys-lru
+# Lettuce pooling recommendations:
+# lettuce.pool.max-active=100
+# lettuce.pool.max-idle=20
+# lettuce.pool.max-wait=2000ms`;
+  } else if (backendStack === 'csharp-netcore') {
+    nginxConfig = `# Nginx reverse proxy configured for ASP.NET Core Kestrel servers
+upstream kestrel_app_cluster {
+    server dot-net-app:5000;
+    keepalive 128;
+}
+server {
+    listen 80 reuseport;
+    location / {
+        proxy_pass http://kestrel_app_cluster;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade; # Best practice for Kestrel WebSocket pipes
+    }
+}`;
+    postgresConfig = `-- Tuning PostgreSQL for .NET Core Entity Framework (EF Core)
+-- Custom parameters optimized for ADO.NET and Npgsql pooling channels
+
+ALTER SYSTEM SET max_connections = 600;
+ALTER SYSTEM SET shared_buffers = '4GB';
+ALTER SYSTEM SET work_mem = '32MB';
+
+-- Recommended EF Core Connection String specifications:
+-- "Server=db;Port=5432;Database=tix;Username=admin;Password=secret;Maximum Pool Size=300;Minimum Pool Size=10;"`;
+    redisConfig = `# Redis tuned for .NET StackExchange.Redis multiplexer client
+maxmemory 3gb
+maxmemory-policy allkeys-lru
+tcp-backlog 65536
+# StackExchange.Redis recommended setup:
+# syncTimeout=5000,connectTimeout=10000,keepAlive=60`;
+  }
+
+  const optimization_configs = {
+    nginx: nginxConfig,
+    postgres: postgresConfig,
+    redis: redisConfig
   };
 
   const monitoring_checklist = language === 'th' ? [
@@ -978,3 +1133,60 @@ export function getMockModifyBlueprint(blueprint: any, prompt: string, language:
     }
   };
 }
+
+export function getMockQuestions(blueprint: any, language: 'th' | 'en') {
+  const isConcert = /concert|ticket|booking|กดบัตร|จองตั๋ว|บัตรคอนเสิร์ต/i.test(blueprint?.title || '');
+  
+  if (language === 'th') {
+    return {
+      questions: [
+        {
+          id: "lock-timeout",
+          question: isConcert 
+            ? "ระยะเวลาล็อกที่นั่งชั่วคราว (Lock Timeout) ควรกำหนดไว้กี่นาทีก่อนปล่อยหลุด?"
+            : "ระยะเวลาล็อกสิทธิ์เซสชันชั่วคราว ควรกำหนดไว้เท่าไหร่?",
+          target_node: "redis-cache",
+          placeholder: isConcert ? "ระบุเป็นนาที เช่น 10 นาที" : "ระบุระยะเวลา เช่น 5 นาที"
+        },
+        {
+          id: "payment-gateway",
+          question: "ช่องทางการรับชำระเงินที่ต้องการเชื่อมต่อคือระบบใด และมีนโยบาย Retry อย่างไร?",
+          target_node: "booking-service",
+          placeholder: "เช่น PromptPay/Stripe, หากล้มเหลวให้ลองใหม่ 3 ครั้ง"
+        },
+        {
+          id: "failure-policy",
+          question: "หากส่งข้อความเข้าคิวไม่สำเร็จ (Queue Publish Fail) ระบบควรแก้ปัญหาอย่างไร?",
+          target_node: "rabbitmq-broker",
+          placeholder: "เช่น เก็บลงใน Local Disk / Log, หรือลองซ้ำทันที"
+        }
+      ]
+    };
+  } else {
+    return {
+      questions: [
+        {
+          id: "lock-timeout",
+          question: isConcert 
+            ? "What should be the seat lock duration (timeout) before releasing the ticket?"
+            : "What should be the session lock duration?",
+          target_node: "redis-cache",
+          placeholder: isConcert ? "e.g., 10 minutes" : "e.g., 5 minutes"
+        },
+        {
+          id: "payment-gateway",
+          question: "Which payment gateways do you need to integrate and what is the retry policy?",
+          target_node: "booking-service",
+          placeholder: "e.g., Stripe/PayPal, with 3 maximum retry attempts"
+        },
+        {
+          id: "failure-policy",
+          question: "How should write failures to the queue broker be handled?",
+          target_node: "rabbitmq-broker",
+          placeholder: "e.g., Write to fallback local logs and trigger DLQ alert"
+        }
+      ]
+    };
+  }
+}
+

@@ -9,7 +9,7 @@ export interface WorkflowNode {
 }
 
 export interface WorkflowLayer {
-  id: string; // "presentation" | "application" | "queue" | "data"
+  id: 'presentation' | 'application' | 'queue' | 'data' | string;
   name: string;
   nodes: WorkflowNode[];
 }
@@ -83,6 +83,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  intent?: 'qa' | 'modify' | 'error';
   graphState?: {
     blueprint: WorkflowData;
     resiliency: ResiliencyData | null;
@@ -105,6 +106,8 @@ export interface SavedSession {
   techStack?: string;
   activePhaseIndex?: number;
   checkedDoD?: Record<string, boolean>;
+  businessQuestions?: any[] | null;
+  userAnswers?: Record<string, string>;
 }
 
 export interface ChatModification {
@@ -201,5 +204,4 @@ export interface PromptEngineerData {
   explanation: string;
   phases: PromptPhase[];
 }
-
 

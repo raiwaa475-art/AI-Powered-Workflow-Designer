@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getProviderConfig } from '@/lib/providerSession';
+import { callLLM } from '@/lib/llmClient';
 
 const SYSTEM_PROMPT = `You are an Elite System Architecture Modifier Agent.
 Your job is to read the user's current system architecture blueprint (WorkflowData JSON containing layers, nodes, and steps) and their modification instructions, then output a Patch JSON of modifications strictly matching the ChatModification schema.
@@ -70,147 +71,30 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: `Authentication Key for ${provider} is missing.` }), { status: 400 });
+    }
+
     const finalSystemPrompt = SYSTEM_PROMPT + `\nIMPORTANT: All output text (explanation, titles, descriptions, names) MUST be written in ${lang === 'th' ? 'THAI' : 'ENGLISH'}.`;
 
-    if (provider === 'openai') {
-      const openAiKey = apiKey;
-      if (!openAiKey) {
-        return new Response(JSON.stringify({ error: 'OpenAI API Key is missing. Check settings.' }), { status: 400 });
+    const { content, usage } = await callLLM({
+      provider: provider as any,
+      apiKey,
+      systemPrompt: finalSystemPrompt,
+      userMessage: `Current System Blueprint State:\n${JSON.stringify(blueprint, null, 2)}\n\nUser request to modify this system: ${prompt}`,
+      jsonMode: true,
+      temperature: 0.1,
+      maxTokens: 4000
+    });
+
+    return new Response(content, {
+      headers: { 
+        'Content-Type': 'application/json',
+        'X-Prompt-Tokens': String(usage.promptTokens),
+        'X-Completion-Tokens': String(usage.completionTokens),
+        'X-Total-Tokens': String(usage.totalTokens)
       }
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openAiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: [
-            { role: 'system', content: finalSystemPrompt },
-            { 
-              role: 'user', 
-              content: `Current System Blueprint State:\n${JSON.stringify(blueprint, null, 2)}\n\nUser request to modify this system: ${prompt}` 
-            }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.1,
-        }),
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `OpenAI API returned status ${response.status}`);
-      }
-
-      const resData = await response.json();
-      const content = resData.choices[0]?.message?.content;
-      const promptTokens = resData.usage?.prompt_tokens || 0;
-      const completionTokens = resData.usage?.completion_tokens || 0;
-      const totalTokens = resData.usage?.total_tokens || 0;
-      return new Response(content, {
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Prompt-Tokens': String(promptTokens),
-          'X-Completion-Tokens': String(completionTokens),
-          'X-Total-Tokens': String(totalTokens)
-        }
-      });
-    }
-
-    if (provider === 'anthropic') {
-      const claudeKey = apiKey;
-      if (!claudeKey) {
-        return new Response(JSON.stringify({ error: 'Claude API Key is missing. Check settings.' }), { status: 400 });
-      }
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': claudeKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022',
-          max_tokens: 4000,
-          system: finalSystemPrompt,
-          messages: [
-            { 
-              role: 'user', 
-              content: `Current System Blueprint State:\n${JSON.stringify(blueprint, null, 2)}\n\nUser request to modify this system: ${prompt}` 
-            }
-          ],
-          temperature: 0.1,
-        }),
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `Claude API returned status ${response.status}`);
-      }
-
-      const resData = await response.json();
-      const text = resData.content[0]?.text || '{}';
-      const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-      const promptTokens = resData.usage?.input_tokens || 0;
-      const completionTokens = resData.usage?.output_tokens || 0;
-      const totalTokens = promptTokens + completionTokens;
-      return new Response(cleanedText, {
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Prompt-Tokens': String(promptTokens),
-          'X-Completion-Tokens': String(completionTokens),
-          'X-Total-Tokens': String(totalTokens)
-        }
-      });
-    } else if (provider === 'deepseek') {
-      const deepSeekKey = apiKey;
-      if (!deepSeekKey) {
-        return new Response(JSON.stringify({ error: 'DeepSeek API Key is missing. Check settings.' }), { status: 400 });
-      }
-
-      const response = await fetch('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${deepSeekKey}`,
-        },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: [
-            { role: 'system', content: finalSystemPrompt },
-            { 
-              role: 'user', 
-              content: `Current System Blueprint State:\n${JSON.stringify(blueprint, null, 2)}\n\nUser request to modify this system: ${prompt}` 
-            }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.1,
-        }),
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `DeepSeek API returned status ${response.status}`);
-      }
-
-      const resData = await response.json();
-      const cleanedText = resData.choices[0]?.message?.content || '{}';
-      const promptTokens = resData.usage?.prompt_tokens || 0;
-      const completionTokens = resData.usage?.completion_tokens || 0;
-      const totalTokens = resData.usage?.total_tokens || 0;
-      return new Response(cleanedText, {
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Prompt-Tokens': String(promptTokens),
-          'X-Completion-Tokens': String(completionTokens),
-          'X-Total-Tokens': String(totalTokens)
-        }
-      });
-    }
-
-    return new Response(JSON.stringify({ error: 'Unsupported provider' }), { status: 400 });
+    });
   } catch (error: any) {
     console.error(error);
     return new Response(JSON.stringify({ error: error.message || 'Server error modifying blueprint' }), {

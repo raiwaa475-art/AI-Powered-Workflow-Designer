@@ -76,6 +76,10 @@ export function useCollab(isMounted: boolean): UseCollabReturn {
   // Connect / reconnect whenever roomId changes
   useEffect(() => {
     if (!isMounted) return;
+    if (process.env.NEXT_PUBLIC_ENABLE_COLLAB !== 'true') {
+      console.log('[useCollab] Collaboration feature is disabled via env flag.');
+      return;
+    }
 
     let ws: WebSocket;
 

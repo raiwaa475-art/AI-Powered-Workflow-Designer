@@ -48,6 +48,9 @@ const CustomDataFlowEdge = ({
   className,
   data,
 }: any) => {
+  // Create a 100% web-safe, space-free and combinator-free ID for SVG <path> and <mpath> references
+  const safePathId = `path-flow-${id.replace(/[^a-zA-Z0-9-_]/g, '_')}`;
+
   // Determine routing dynamically to ensure visual clarity:
   // - Horizontal flows (between side handles left/right) use perfectly straight paths to avoid visual clutter.
   // - Vertical/Cross-layer flows (between top/bottom handles) use rounded orthogonal steps with dynamic Y offsets to completely prevent line overlaps.
@@ -100,7 +103,7 @@ const CustomDataFlowEdge = ({
   return (
     <>
       <path
-        id={id}
+        id={safePathId}
         className={className}
         d={edgePath}
         style={style}
@@ -109,18 +112,37 @@ const CustomDataFlowEdge = ({
       />
       {data?.isActive && (
         <>
-          {/* Glowing flying packet circle */}
-          <circle r="5.5" fill={data.flowColor || '#06b6d4'} className="filter drop-shadow-[0_0_6px_rgba(6,182,212,0.85)]">
-            <animateMotion dur="6s" repeatCount="indefinite">
-              <mpath href={`#${id}`} />
+          <circle 
+            r="6.5" 
+            fill={data.flowColor || '#06b6d4'} 
+            className="opacity-95"
+            style={{ filter: `drop-shadow(0 0 8px ${data.flowColor || '#06b6d4'})` }}
+          >
+            <animateMotion dur="4.5s" repeatCount="indefinite">
+              <mpath href={`#${safePathId}`} />
+            </animateMotion>
+          </circle>
+          <circle 
+            r="4.5" 
+            fill={data.flowColor || '#06b6d4'} 
+            className="opacity-60"
+            style={{ filter: `drop-shadow(0 0 5px ${data.flowColor || '#06b6d4'})` }}
+          >
+            <animateMotion dur="4.5s" repeatCount="indefinite" begin="0.08s">
+              <mpath href={`#${safePathId}`} />
+            </animateMotion>
+          </circle>
+          <circle r="2.5" fill={data.flowColor || '#06b6d4'} className="opacity-30">
+            <animateMotion dur="4.5s" repeatCount="indefinite" begin="0.16s">
+              <mpath href={`#${safePathId}`} />
             </animateMotion>
           </circle>
 
           {/* Floating transaction label pill */}
           {data.payloadText && (
             <g>
-              <animateMotion dur="6s" repeatCount="indefinite">
-                <mpath href={`#${id}`} />
+              <animateMotion dur="4.5s" repeatCount="indefinite">
+                <mpath href={`#${safePathId}`} />
               </animateMotion>
               <foreignObject
                 width="180"
@@ -212,11 +234,15 @@ interface CanvasProps {
   onTogglePlay: () => void;
   currentStepIndex: number;
   onStepClick: (idx: number) => void;
+
+  // Dual-mode props
+  canvasViewMode: 'architecture' | 'business' | 'hybrid';
+  setCanvasViewMode: (mode: 'architecture' | 'business' | 'hybrid') => void;
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
-  nodes,
-  edges,
+  nodes: initialNodes,
+  edges: initialEdges,
   onNodesChange,
   onEdgesChange,
   onNodeDragStop,
@@ -232,8 +258,11 @@ export const Canvas: React.FC<CanvasProps> = ({
   isPlaying,
   onTogglePlay,
   currentStepIndex,
-  onStepClick
+  onStepClick,
+  canvasViewMode,
+  setCanvasViewMode
 }) => {
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [gridPattern, setGridPattern] = useState<'dots' | 'lines' | 'none'>('dots');
   const [gridGap, setGridGap] = useState<number>(30);
   const [gridColor, setGridColor] = useState<string>('#ffffff');
@@ -241,6 +270,11 @@ export const Canvas: React.FC<CanvasProps> = ({
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<any>(null);
+
+  // Clear hover state on canvas mode transition to prevent ghost glows
+  useEffect(() => {
+    setHoveredNodeId(null);
+  }, [canvasViewMode]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -272,8 +306,8 @@ export const Canvas: React.FC<CanvasProps> = ({
   useEffect(() => {
     if (!rfInstance) return;
     const timeoutId = setTimeout(() => {
-      rfInstance.fitView({ padding: 0.15, duration: 400 });
-    }, 150);
+      rfInstance.fitView({ padding: 0.15, duration: 150 });
+    }, 50);
     return () => clearTimeout(timeoutId);
   }, [isFullscreen, rfInstance]);
 
@@ -286,10 +320,114 @@ export const Canvas: React.FC<CanvasProps> = ({
     if (!rfInstance || !blueprint) return;
     // Delay slightly to allow React Flow to fully render all nodes before fitting view
     const timeoutId = setTimeout(() => {
-      rfInstance.fitView({ padding: 0.2, duration: 600 });
-    }, 150);
+      rfInstance.fitView({ padding: 0.2, duration: 150 });
+    }, 50);
     return () => clearTimeout(timeoutId);
-  }, [blueprint, rfInstance, currentStepIndex]);
+  }, [blueprint, rfInstance, currentStepIndex, canvasViewMode]);
+
+  // Compute decorated nodes and edges dynamically based on hover state (60 FPS local calculation)
+  const { nodes, edges } = React.useMemo(() => {
+    if (!hoveredNodeId || canvasViewMode === 'hybrid') {
+      return { nodes: initialNodes, edges: initialEdges };
+    }
+
+    // 1. Collect connected node IDs and connected edge IDs
+    const connectedNodeIds = new Set<string>();
+    connectedNodeIds.add(hoveredNodeId);
+    
+    const connectedEdgeIds = new Set<string>();
+
+    initialEdges.forEach(edge => {
+      if (edge.source === hoveredNodeId || edge.target === hoveredNodeId) {
+        connectedNodeIds.add(edge.source);
+        connectedNodeIds.add(edge.target);
+        connectedEdgeIds.add(edge.id);
+      }
+    });
+
+    // 2. Map nodes
+    const decNodes = initialNodes.map(node => {
+      // Background layers swimlanes/headers should be unaffected
+      if (node.type !== 'custom' && node.type !== 'businessStep') {
+        return node;
+      }
+
+      const isConnectedOrHovered = connectedNodeIds.has(node.id);
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          isActive: isConnectedOrHovered,
+          hasActiveStep: true, // triggers the dimming on the non-hovered ones
+        },
+        style: {
+          ...node.style,
+          zIndex: isConnectedOrHovered ? 10 : 1,
+        }
+      };
+    });
+
+    // 3. Map edges
+    const decEdges = initialEdges.map(edge => {
+      const isConnected = connectedEdgeIds.has(edge.id);
+      if (isConnected) {
+        let flowColor = edge.data?.flowColor || '#06b6d4';
+        
+        // Let's check protocol and map appropriate glowing color
+        const type = edge.data?.flowType || '';
+        if (type === 'sync') {
+          flowColor = '#22d3ee';
+        } else if (type === 'async') {
+          flowColor = '#fb923c';
+        } else if (type === 'event') {
+          flowColor = '#c084fc';
+        } else if (canvasViewMode === 'business') {
+          flowColor = '#f59e0b';
+        }
+
+        let edgeClass = 'stroke-[3.5px] transition-all duration-300';
+        if (type === 'sync') {
+          edgeClass += ' stroke-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.6)]';
+        } else if (type === 'async') {
+          edgeClass += ' stroke-orange-400 drop-shadow-[0_0_8px_rgba(249,115,22,0.5)]';
+        } else if (type === 'event') {
+          edgeClass += ' stroke-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]';
+        } else if (canvasViewMode === 'business') {
+          edgeClass += ' stroke-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]';
+        } else {
+          edgeClass += ' stroke-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.6)]';
+        }
+
+        return {
+          ...edge,
+          animated: true,
+          className: edgeClass,
+          style: {
+            ...edge.style,
+            strokeDasharray: type === 'async' ? '6,6' : undefined,
+          },
+          data: {
+            ...edge.data,
+            isActive: canvasViewMode !== 'business',
+            flowColor,
+          }
+        };
+      } else {
+        // Dim out non-connected edges to 0.03 opacity so it is barely visible
+        return {
+          ...edge,
+          animated: false,
+          className: 'stroke-white/3 stroke-[1px] pointer-events-none transition-all duration-300',
+          data: {
+            ...edge.data,
+            isActive: false,
+          }
+        };
+      }
+    });
+
+    return { nodes: decNodes, edges: decEdges };
+  }, [initialNodes, initialEdges, hoveredNodeId, canvasViewMode]);
 
   if (!isMounted) return null;
 
@@ -311,7 +449,7 @@ export const Canvas: React.FC<CanvasProps> = ({
   return (
     <div 
       ref={containerRef}
-      className={`flex-1 w-full h-full min-h-0 relative overflow-hidden border border-white/15 bg-slate-950 flex flex-col transition-all duration-300 ${
+      className={`hud-canvas-frame flex-1 w-full h-full min-h-0 relative overflow-hidden border border-white/15 bg-slate-950 flex flex-col transition-all duration-300 ${
         isFullscreen ? 'rounded-none border-none p-4' : 'rounded-2xl mt-2 shadow-2xl bg-slate-900/90 backdrop-blur-md'
       }`}
     >
@@ -506,6 +644,21 @@ export const Canvas: React.FC<CanvasProps> = ({
               minZoom={0.15}
               maxZoom={1.5}
               connectionLineType={ConnectionLineType.SmoothStep}
+              onPaneClick={() => {
+                if (canvasViewMode !== 'hybrid') {
+                  setHoveredNodeId(null);
+                }
+              }}
+              onNodeMouseEnter={(_, node) => {
+                if (canvasViewMode !== 'hybrid' && (node.type === 'custom' || node.type === 'businessStep')) {
+                  setHoveredNodeId(node.id);
+                }
+              }}
+              onNodeMouseLeave={() => {
+                if (canvasViewMode !== 'hybrid') {
+                  setHoveredNodeId(null);
+                }
+              }}
             >
               <Background 
                 variant={(gridPattern === 'dots' ? 'dots' : gridPattern === 'lines' ? 'lines' : undefined) as any} 
@@ -515,48 +668,50 @@ export const Canvas: React.FC<CanvasProps> = ({
                 style={{ opacity: gridPattern === 'none' ? 0 : (gridColor === '#ffffff' ? 0.08 : 0.15) }} 
               />
               <Controls className="!bg-slate-950 !border-white/10 !shadow-2xl" />
-              <MiniMap 
-                nodeColor={(n: any) => {
-                  if (n.data?.layerId === 'presentation') return '#8b5cf6';
-                  if (n.data?.layerId === 'application') return '#14b8a6';
-                  if (n.data?.layerId === 'queue') return '#f59e0b';
-                  if (n.data?.layerId === 'data') return '#3b82f6';
-                  return '#06b6d4';
-                }}
-                maskColor="rgba(3, 7, 18, 0.75)"
-                style={{ background: '#090d16', border: '1px solid rgba(255,255,255,0.08)' }}
-              />
+              <div className="hidden md:block">
+                <MiniMap 
+                  nodeColor={(n: any) => {
+                    if (n.data?.layerId === 'presentation') return '#8b5cf6';
+                    if (n.data?.layerId === 'application') return '#14b8a6';
+                    if (n.data?.layerId === 'queue') return '#f59e0b';
+                    if (n.data?.layerId === 'data') return '#3b82f6';
+                    return '#06b6d4';
+                  }}
+                  maskColor="rgba(3, 7, 18, 0.75)"
+                  style={{ background: '#090d16', border: '1px solid rgba(255,255,255,0.08)' }}
+                />
+              </div>
             </ReactFlow>
 
             {/* Glowing Step-by-Step Playback Controller */}
-            {steps.length > 0 && (
-              <div className={`absolute bottom-6 left-6 right-6 z-20 bg-slate-950/95 border border-white/10 p-4 rounded-2xl backdrop-blur-xl shadow-2xl flex flex-col ${isCollapsed ? 'gap-0' : 'gap-3'} text-left transition-all duration-500 ease-in-out hover:border-white/15 animate-fade-in-node`}>
+            {steps.length > 0 && canvasViewMode === 'hybrid' && (
+              <div className={`absolute bottom-3 left-3 right-3 sm:bottom-6 sm:left-6 sm:right-6 z-20 bg-slate-950/95 border border-white/10 p-3 sm:p-4 rounded-2xl backdrop-blur-xl shadow-2xl flex flex-col ${isCollapsed ? 'gap-0' : 'gap-2.5 sm:gap-3'} text-left transition-all duration-500 ease-in-out hover:border-white/15 animate-fade-in-node`}>
                 
                 {/* Header controls */}
                 <div className={`flex items-center justify-between shrink-0 select-none transition-all duration-300 ${
                   isCollapsed ? 'pb-0 border-b-0' : 'border-b border-white/5 pb-2'
                 }`}>
-                  <div className="flex items-center gap-2">
-                    <Activity className={`w-4 h-4 text-cyan-400 ${isPlaying ? 'animate-pulse' : ''}`} />
-                    <h5 className="text-[11px] font-bold text-white uppercase tracking-wider font-sans">
-                      {language === 'th' ? '🗺️ แผนภาพสเปกตรัมการวิ่งของข้อมูล (End-to-End Workflow)' : '🗺️ End-to-End Data Transaction Spectrum'}
+                  <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                    <Activity className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-400 shrink-0 ${isPlaying ? 'animate-pulse' : ''}`} />
+                    <h5 className="text-[9px] sm:text-[11px] font-bold text-white uppercase tracking-wider font-sans truncate pr-1">
+                      {language === 'th' ? 'แผนภาพสเปกตรัมการวิ่งของข้อมูล (End-to-End Workflow)' : 'End-to-End Data Transaction Spectrum'}
                     </h5>
                   </div>
                   
                   {/* Play controller controls */}
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
                     {!isCollapsed && (
-                      <div className="flex items-center gap-1 bg-slate-900 border border-white/5 p-0.5 rounded-lg animate-fade-in-node">
+                      <div className="hidden sm:flex items-center gap-1 bg-slate-900 border border-white/5 p-0.5 rounded-lg animate-fade-in-node">
                         <button 
                           onClick={handleScrollLeft}
-                          className="p-1 hover:bg-white/5 text-gray-400 hover:text-white rounded transition-all cursor-pointer"
+                          className="p-1 hover:bg-white/5 text-gray-400 hover:text-white rounded transition-all cursor-pointer touch-target-active"
                           title="Scroll Left"
                         >
                           <ChevronLeft className="w-3.5 h-3.5" />
                         </button>
                         <button 
                           onClick={handleScrollRight}
-                          className="p-1 hover:bg-white/5 text-gray-400 hover:text-white rounded transition-all cursor-pointer"
+                          className="p-1 hover:bg-white/5 text-gray-400 hover:text-white rounded transition-all cursor-pointer touch-target-active"
                           title="Scroll Right"
                         >
                           <ChevronRight className="w-3.5 h-3.5" />
@@ -566,7 +721,7 @@ export const Canvas: React.FC<CanvasProps> = ({
 
                     <button
                       onClick={onTogglePlay}
-                      className={`py-1.5 px-3.5 rounded-xl border text-[10px] font-extrabold flex items-center gap-2 cursor-pointer transition-all shadow-md ${
+                      className={`py-1 sm:py-1.5 px-2 sm:px-3.5 rounded-xl border text-[8px] sm:text-[10px] font-extrabold flex items-center gap-1 sm:gap-2 cursor-pointer transition-all shadow-md touch-target-active ${
                         isPlaying 
                           ? 'bg-orange-600/10 border-orange-500/30 text-orange-400 hover:bg-orange-600/20 shadow-orange-500/5' 
                           : 'bg-cyan-600/10 border-cyan-500/30 text-cyan-400 hover:bg-cyan-600/20 shadow-cyan-500/5'
@@ -574,13 +729,13 @@ export const Canvas: React.FC<CanvasProps> = ({
                     >
                       {isPlaying ? (
                         <>
-                          <Pause className="w-3 h-3 text-orange-400 fill-orange-400" />
-                          <span>{language === 'th' ? '⏸️ หยุดชั่วคราว' : '⏸️ PAUSE PLAY'}</span>
+                          <Pause className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-orange-400 fill-orange-400" />
+                          <span>{language === 'th' ? 'หยุด' : 'PAUSE'}</span>
                         </>
                       ) : (
                         <>
-                          <Play className="w-3 h-3 text-cyan-400 fill-cyan-400 animate-pulse" />
-                          <span>{language === 'th' ? '▶️ เล่นเวิร์กโฟลว์' : '▶️ AUTO PLAY'}</span>
+                          <Play className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-cyan-400 fill-cyan-400 animate-pulse" />
+                          <span>{language === 'th' ? 'เล่น' : 'PLAY'}</span>
                         </>
                       )}
                     </button>
@@ -588,23 +743,23 @@ export const Canvas: React.FC<CanvasProps> = ({
                     {currentStepIndex >= 0 && (
                       <button
                         onClick={() => onStepClick(-1)}
-                        className="py-1.5 px-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[10px] font-extrabold flex items-center gap-2 cursor-pointer transition-all shadow-md shadow-rose-500/5 animate-fade-in-node"
+                        className="py-1 sm:py-1.5 px-2 sm:px-3.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[8px] sm:text-[10px] font-extrabold flex items-center gap-1 sm:gap-2 cursor-pointer transition-all shadow-md shadow-rose-500/5 animate-fade-in-node touch-target-active"
                       >
-                        <span>{language === 'th' ? '👁️ แสดงผังทั้งหมด' : '👁️ SHOW ALL'}</span>
+                        <span>{language === 'th' ? 'แสดงผังรวม' : 'SHOW ALL'}</span>
                       </button>
                     )}
 
                     <button
                       onClick={() => setIsCollapsed(!isCollapsed)}
-                      className={`p-1.5 hover:bg-white/5 rounded-xl border border-white/5 hover:border-white/15 transition-all duration-300 cursor-pointer flex items-center justify-center ${
+                      className={`p-1 sm:p-1.5 hover:bg-white/5 rounded-xl border border-white/5 hover:border-white/15 transition-all duration-300 cursor-pointer flex items-center justify-center touch-target-active ${
                         isCollapsed ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400' : 'text-gray-400 hover:text-white'
                       }`}
-                      title={isCollapsed ? (language === 'th' ? 'ขยายสเปกตรัม' : 'Expand Spectrum') : (language === 'th' ? 'ย่อเก็บสเปกตรัม' : 'Collapse Spectrum')}
+                      title={isCollapsed ? (language === 'th' ? 'ขยายสเปกตรัม' : 'Expand') : (language === 'th' ? 'ย่อสเปกตรัม' : 'Collapse')}
                     >
                       {isCollapsed ? (
-                        <ChevronUp className="w-3.5 h-3.5" />
+                        <ChevronUp className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                       ) : (
-                        <ChevronDown className="w-3.5 h-3.5" />
+                        <ChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                       )}
                     </button>
                   </div>
@@ -618,7 +773,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                   <div className="relative mt-1">
                     <div 
                       ref={scrollContainerRef}
-                      className="flex gap-3 overflow-x-auto py-1.5 scrollbar-thin select-none scroll-smooth pr-10"
+                      className="flex gap-2.5 sm:gap-3 overflow-x-auto py-1.5 scrollbar-thin select-none scroll-smooth pr-10"
                       style={{ scrollbarWidth: 'thin' }}
                     >
                       {steps.map((step: any, idx: number) => {
@@ -631,13 +786,13 @@ export const Canvas: React.FC<CanvasProps> = ({
                         if (isActive) {
                           if (matchingFlow?.flow_type === 'sync') {
                             activeColorClass = 'border-cyan-500/50 bg-cyan-950/25 ring-1 ring-cyan-500/20 shadow-[0_0_15px_-3px_rgba(6,182,212,0.4)] opacity-100';
-                            flowBadge = <span className="text-[8px] font-bold text-cyan-400 uppercase tracking-widest bg-cyan-500/10 border border-cyan-500/20 px-1 rounded">Sync</span>;
+                            flowBadge = <span className="text-[7px] sm:text-[8px] font-bold text-cyan-400 uppercase tracking-widest bg-cyan-500/10 border border-cyan-500/20 px-1 rounded">Sync</span>;
                           } else if (matchingFlow?.flow_type === 'async') {
                             activeColorClass = 'border-orange-500/50 bg-orange-950/25 ring-1 ring-orange-500/20 shadow-[0_0_15px_-3px_rgba(249,115,22,0.4)] opacity-100';
-                            flowBadge = <span className="text-[8px] font-bold text-orange-400 uppercase tracking-widest bg-orange-500/10 border border-orange-500/20 px-1 rounded">Async</span>;
+                            flowBadge = <span className="text-[7px] sm:text-[8px] font-bold text-orange-400 uppercase tracking-widest bg-orange-500/10 border border-orange-500/20 px-1 rounded">Async</span>;
                           } else if (matchingFlow?.flow_type === 'event') {
                             activeColorClass = 'border-purple-500/50 bg-purple-950/25 ring-1 ring-purple-500/20 shadow-[0_0_15px_-3px_rgba(168,85,247,0.4)] opacity-100';
-                            flowBadge = <span className="text-[8px] font-bold text-purple-400 uppercase tracking-widest bg-purple-500/10 border border-purple-500/20 px-1 rounded">Event</span>;
+                            flowBadge = <span className="text-[7px] sm:text-[8px] font-bold text-purple-400 uppercase tracking-widest bg-purple-500/10 border border-purple-500/20 px-1 rounded">Event</span>;
                           } else {
                             activeColorClass = 'border-cyan-500/40 bg-slate-900/90 ring-1 ring-cyan-500/10 opacity-100';
                           }
@@ -647,21 +802,21 @@ export const Canvas: React.FC<CanvasProps> = ({
                           <div
                             key={step.id || idx}
                             onClick={() => onStepClick(idx)}
-                            className={`flex-shrink-0 w-[240px] p-3 rounded-xl border text-[10px] cursor-pointer flex flex-col justify-between transition-all duration-300 font-sans ${activeColorClass}`}
+                            className={`flex-shrink-0 w-[170px] sm:w-[240px] p-2.5 sm:p-3 rounded-xl border text-[9px] sm:text-[10px] cursor-pointer flex flex-col justify-between transition-all duration-300 font-sans ${activeColorClass}`}
                           >
                             <div>
-                              <div className="flex items-center justify-between mb-1.5">
-                                <span className="font-mono text-cyan-400 font-bold uppercase tracking-wider">
+                              <div className="flex items-center justify-between mb-1 sm:mb-1.5">
+                                <span className="font-mono text-cyan-400 font-bold uppercase tracking-wider text-[8px] sm:text-[9px]">
                                   {language === 'th' ? `ขั้นที่ ${step.number}` : `Step ${step.number}`}
                                 </span>
                                 {flowBadge}
                               </div>
-                              <h6 className="font-bold text-white line-clamp-1 text-[11px]">{step.title}</h6>
-                              <p className="text-gray-400 mt-1 leading-relaxed line-clamp-2 text-[9px]">{step.description}</p>
+                              <h6 className="font-bold text-white line-clamp-1 text-[10px] sm:text-[11px]">{step.title}</h6>
+                              <p className="text-gray-400 mt-1 leading-relaxed line-clamp-2 text-[8px] sm:text-[9px]">{step.description}</p>
                             </div>
 
                             {matchingFlow && matchingFlow.technical_protocol && (
-                              <div className="mt-2 pt-1.5 border-t border-white/5 flex items-center justify-between text-[8px] text-gray-500 font-mono">
+                              <div className="mt-1.5 pt-1 border-t border-white/5 flex items-center justify-between text-[7px] sm:text-[8px] text-gray-500 font-mono">
                                 <span>Protocol:</span>
                                 <span className="font-bold text-slate-300 uppercase">{matchingFlow.technical_protocol}</span>
                               </div>

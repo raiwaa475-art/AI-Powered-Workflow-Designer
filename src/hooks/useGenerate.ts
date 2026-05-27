@@ -27,7 +27,7 @@ export interface UseGenerateReturn {
   newlyModifiedNodeIds: string[];
   addTokens: (prompt: number, completion: number) => void;
   handleGenerate: (params: { prompt: string; language: 'th' | 'en' }) => Promise<void>;
-  handleChatModify: (chatText: string, params: { prompt: string; blueprint: any; language: 'th' | 'en' }) => Promise<void>;
+  handleChatMessage: (chatText: string, params: { prompt: string; blueprint: any; language: 'th' | 'en' }) => Promise<void>;
   handleReverseEngineer: (
     payload: { zipBase64?: string; repoUrl?: string },
     params: { language: 'th' | 'en' }
@@ -36,15 +36,159 @@ export interface UseGenerateReturn {
   chatHistory: ChatMessage[];
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   addLog: (text: string) => void;
-  triggerTelemetryInsights: (bp: any, language: 'th' | 'en', onBroadcast?: (bp: any, res: any, scale: any) => void) => Promise<void>;
+  triggerTelemetryInsights: (bp: any, language: 'th' | 'en', currentBackendStack?: string, onBroadcast?: (bp: any, res: any, scale: any) => void) => Promise<void>;
   promptInfo: PromptEngineerData | null;
   setPromptInfo: React.Dispatch<React.SetStateAction<PromptEngineerData | null>>;
   isGeneratingPrompts: boolean;
-  handleGeneratePrompts: (language: 'th' | 'en') => Promise<void>;
+  handleGeneratePrompts: (language: 'th' | 'en', customAnswers?: Record<string, string>) => Promise<void>;
   activePhaseIndex: number;
   setActivePhaseIndex: React.Dispatch<React.SetStateAction<number>>;
   checkedDoD: Record<string, boolean>;
   setCheckedDoD: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  backendStack: string;
+  setBackendStack: React.Dispatch<React.SetStateAction<string>>;
+  showStackSelector: boolean;
+  setShowStackSelector: React.Dispatch<React.SetStateAction<boolean>>;
+  selectStackAndAnalyze: (stackId: string, customBlueprint?: any) => Promise<void>;
+}
+
+function isBlueprintEditRequest(text: string) {
+  return /(^|\s)(\/edit|add|remove|delete|change|update|modify|replace|integrate|deploy|attach|connect|insert|create|เพิ่ม|ลบ|เอาออก|เปลี่ยน|แก้|ปรับ|อัปเดต|เชื่อม|ติดตั้ง|ใส่|สร้าง)(\s|$)/i.test(text);
+}
+
+function getNeedsBlueprintMessage(language: 'th' | 'en') {
+  return language === 'th'
+    ? 'ตอนนี้ยังไม่มี blueprint บน canvas ครับ ถ้าต้องการให้ผมแก้โครงสร้างจริง ให้สร้าง blueprint ก่อนจาก prompt หลักด้านซ้าย แล้วกลับมาสั่งแก้ในแชทนี้ได้เลย'
+    : 'There is no active blueprint on the canvas yet. Generate a blueprint from the main prompt first, then I can apply architecture changes from this chat.';
+}
+
+const LAYER_ORDER = ['presentation', 'application', 'queue', 'data'];
+
+function getLayerRank(layerId: string) {
+  const rank = LAYER_ORDER.indexOf(layerId);
+  return rank === -1 ? LAYER_ORDER.length : rank;
+}
+
+function isGatewayLike(node: any) {
+  const text = `${node?.name || ''} ${node?.type || ''} ${node?.id || ''}`.toLowerCase();
+  return /gateway|api|ingress|edge|cdn|proxy/.test(text);
+}
+
+function isLoadBalancerLike(node: any) {
+  const text = `${node?.name || ''} ${node?.type || ''} ${node?.id || ''}`.toLowerCase();
+  return /load\s*balancer|load-balancer|haproxy|nginx|alb|elb|balancer/.test(text);
+}
+
+function repairTechFlowConnections(bp: any, touchedNodeIds: string[] = []) {
+  if (!bp?.layers || !bp?.steps) return { blueprint: bp, repairedNodeIds: [] as string[] };
+
+  const nodeById = new Map<string, any>();
+  const layerByNodeId = new Map<string, string>();
+
+  bp.layers.forEach((layer: any) => {
+    (layer.nodes || []).forEach((node: any) => {
+      if (!node?.id) return;
+      nodeById.set(node.id, node);
+      layerByNodeId.set(node.id, layer.id);
+    });
+  });
+
+  const repairedNodeIds = new Set<string>();
+  const referencedNodeIds = new Set<string>();
+
+  bp.steps = (bp.steps || []).map((step: any) => {
+    const seen = new Set<string>();
+    const involved_nodes = (step.involved_nodes || [])
+      .filter((nodeId: string) => nodeById.has(nodeId))
+      .filter((nodeId: string) => {
+        if (seen.has(nodeId)) return false;
+        seen.add(nodeId);
+        referencedNodeIds.add(nodeId);
+        return true;
+      });
+
+    return { ...step, involved_nodes };
+  });
+
+  const candidateNodeIds = Array.from(new Set([
+    ...touchedNodeIds,
+    ...Array.from(nodeById.keys()).filter((nodeId) => !referencedNodeIds.has(nodeId)),
+  ])).filter((nodeId) => nodeById.has(nodeId));
+
+  const insertIntoStep = (nodeId: string, shouldForceInsert: boolean) => {
+    const node = nodeById.get(nodeId);
+    const nodeLayer = layerByNodeId.get(nodeId) || '';
+    const nodeRank = getLayerRank(nodeLayer);
+
+    for (const step of bp.steps) {
+      if (!Array.isArray(step.involved_nodes) || step.involved_nodes.length < 2) continue;
+      if (step.involved_nodes.includes(nodeId) && !shouldForceInsert) return true;
+      if (step.involved_nodes.includes(nodeId)) continue;
+
+      for (let i = 0; i < step.involved_nodes.length - 1; i += 1) {
+        const sourceId = step.involved_nodes[i];
+        const targetId = step.involved_nodes[i + 1];
+        const sourceNode = nodeById.get(sourceId);
+        const targetNode = nodeById.get(targetId);
+        const sourceRank = getLayerRank(layerByNodeId.get(sourceId) || '');
+        const targetRank = getLayerRank(layerByNodeId.get(targetId) || '');
+        const isBetweenLayers = sourceRank <= nodeRank && nodeRank <= targetRank;
+        const isTrafficEntry = isLoadBalancerLike(node) && (isGatewayLike(sourceNode) || isGatewayLike(targetNode));
+        const routesToApplication = isLoadBalancerLike(node) && (
+          layerByNodeId.get(targetId) === 'application' ||
+          layerByNodeId.get(sourceId) === 'presentation'
+        );
+
+        if (isTrafficEntry || routesToApplication || isBetweenLayers) {
+          step.involved_nodes.splice(i + 1, 0, nodeId);
+          repairedNodeIds.add(nodeId);
+          return true;
+        }
+      }
+
+      const lastId = step.involved_nodes[step.involved_nodes.length - 1];
+      const lastRank = getLayerRank(layerByNodeId.get(lastId) || '');
+      if (lastRank <= nodeRank) {
+        step.involved_nodes.push(nodeId);
+        repairedNodeIds.add(nodeId);
+        return true;
+      }
+    }
+
+    const upstream = Array.from(nodeById.values()).find((candidate) => {
+      const rank = getLayerRank(layerByNodeId.get(candidate.id) || '');
+      return candidate.id !== nodeId && rank <= nodeRank && (isGatewayLike(candidate) || rank === Math.max(0, nodeRank - 1));
+    });
+    const downstream = Array.from(nodeById.values()).find((candidate) => {
+      const rank = getLayerRank(layerByNodeId.get(candidate.id) || '');
+      return candidate.id !== nodeId && rank >= nodeRank && !isGatewayLike(candidate);
+    });
+    const involved_nodes = [upstream?.id, nodeId, downstream?.id].filter(Boolean);
+
+    if (involved_nodes.length >= 2) {
+      const nextNumber = Math.max(0, ...(bp.steps || []).map((step: any) => Number(step.number) || 0)) + 1;
+      bp.steps.push({
+        id: `step-${nextNumber}`,
+        number: nextNumber,
+        title: isLoadBalancerLike(node) ? `Route traffic through ${node.name || node.id}` : `Connect ${node.name || node.id}`,
+        description: `TechFlow validation added this step so ${node.name || node.id} is connected to the architecture data path.`,
+        involved_nodes,
+      });
+      repairedNodeIds.add(nodeId);
+      return true;
+    }
+
+    return false;
+  };
+
+  candidateNodeIds.forEach((nodeId) => {
+    const node = nodeById.get(nodeId);
+    insertIntoStep(nodeId, isLoadBalancerLike(node));
+  });
+
+  bp.steps = (bp.steps || []).filter((step: any) => step.involved_nodes && step.involved_nodes.length > 1);
+
+  return { blueprint: bp, repairedNodeIds: Array.from(repairedNodeIds) };
 }
 
 export function useGenerate(): UseGenerateReturn {
@@ -61,9 +205,13 @@ export function useGenerate(): UseGenerateReturn {
   const [newlyModifiedNodeIds, setNewlyModifiedNodeIds] = useState<string[]>([]);
   const [activePhaseIndex, setActivePhaseIndex] = useState<number>(0);
   const [checkedDoD, setCheckedDoD] = useState<Record<string, boolean>>({});
+  const [backendStack, setBackendStack] = useState<string>('');
+  const [showStackSelector, setShowStackSelector] = useState<boolean>(false);
 
   // Keep blueprint ref for use inside async streaming (avoids stale closure)
   const blueprintRef = useRef<any>(null);
+  const pendingBlueprintRef = useRef<any>(null);
+  const pendingLanguageRef = useRef<'th' | 'en'>('en');
 
   const addLog = useCallback((text: string) => {
     setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${text}`]);
@@ -82,6 +230,7 @@ export function useGenerate(): UseGenerateReturn {
     async (
       bp: any,
       language: 'th' | 'en',
+      currentBackendStack?: string,
       onBroadcast?: (bp: any, res: ResiliencyData | null, scale: ScaleData | null) => void
     ) => {
       if (!bp) return;
@@ -110,7 +259,7 @@ export function useGenerate(): UseGenerateReturn {
         const scalePromise = fetch('/api/analyze-scale', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ blueprint: bp, prompt: bp.title || '', language }),
+          body: JSON.stringify({ blueprint: bp, prompt: bp.title || '', language, backendStack: currentBackendStack }),
         }).then(async (res) => {
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -152,6 +301,23 @@ export function useGenerate(): UseGenerateReturn {
       }
     },
     [addLog]
+  );
+
+  const selectStackAndAnalyze = useCallback(
+    async (stackId: string, customBlueprint?: any) => {
+      setBackendStack(stackId);
+      setShowStackSelector(false);
+      
+      const targetBlueprint = customBlueprint || pendingBlueprintRef.current || blueprintRef.current;
+      if (!targetBlueprint) {
+        addLog(pendingLanguageRef.current === 'th' ? '❌ ไม่พบข้อมูลสถาปัตยกรรมที่จะประมวลผล' : '❌ No architecture blueprint found for analysis.');
+        return;
+      }
+      
+      setIsGenerating(true);
+      await triggerTelemetryInsights(targetBlueprint, pendingLanguageRef.current || 'en', stackId);
+    },
+    [triggerTelemetryInsights, addLog]
   );
 
   /* ─── Primary generate handler ─── */
@@ -249,12 +415,21 @@ export function useGenerate(): UseGenerateReturn {
 
         addLog(
           language === 'th'
-            ? '✦ โครงสร้างระบบสว่างขึ้นบน Canvas แล้ว! เริ่มระดมสมองวิเคราะห์ความเสี่ยงและกำลังเครื่องขนานกัน...'
-            : '✦ Core blueprint parsing completed! Launching parallel background analysis workers...'
+            ? '✦ โครงสร้างระบบสว่างขึ้นบน Canvas แล้ว! กรุณาเลือก Backend Stack เพื่อทำการจูนระบบและวิเคราะห์ขนาดเครื่องสืบต่อ...'
+            : '✦ Core blueprint parsing completed! Please choose a Backend Stack to run load scaling & optimizations...'
         );
 
         const finalBlueprint = blueprintRef.current || parsePartialJson(textAccumulator);
-        await triggerTelemetryInsights(finalBlueprint, language);
+        pendingLanguageRef.current = language;
+
+        if (!backendStack) {
+          pendingBlueprintRef.current = finalBlueprint;
+          setShowStackSelector(true);
+          setIsGenerating(false);
+          setActiveStage('IDLE');
+        } else {
+          await triggerTelemetryInsights(finalBlueprint, language, backendStack);
+        }
       } catch (err: any) {
         console.error(err);
         addLog(`ERR: ${err.message}`);
@@ -262,28 +437,99 @@ export function useGenerate(): UseGenerateReturn {
         setActiveStage('IDLE');
       }
     },
-    [isGenerating, addLog, addTokens, triggerTelemetryInsights]
+    [isGenerating, backendStack, addLog, addTokens, triggerTelemetryInsights]
   );
 
   /* ─── Chat modification handler ─── */
-  const handleChatModify = useCallback(
+  const handleChatMessage = useCallback(
     async (
       chatText: string,
-      { prompt, blueprint: currentBlueprint, language }: { prompt: string; blueprint: any; language: 'th' | 'en' }
+      { blueprint: currentBlueprint, language }: { prompt: string; blueprint: any; language: 'th' | 'en' }
     ) => {
-      if (!chatText.trim() || isGenerating || !currentBlueprint) return;
+      if (!chatText.trim() || isGenerating) return;
+
+      const isEditRequest = isBlueprintEditRequest(chatText);
 
       const userMsg: ChatMessage = {
         id: `msg-${Date.now()}-user`,
         role: 'user',
         content: chatText,
+        intent: isEditRequest ? 'modify' : 'qa',
         timestamp: new Date().toISOString(),
       };
       setChatHistory((prev) => [...prev, userMsg]);
       setIsGenerating(true);
-      setActiveStage('BLUEPRINT');
+      setActiveStage(isEditRequest && currentBlueprint ? 'BLUEPRINT' : 'IDLE');
 
       try {
+        if (!currentBlueprint) {
+          if (isEditRequest) {
+            const assistantMsg: ChatMessage = {
+              id: `msg-${Date.now()}-needs-blueprint`,
+              role: 'assistant',
+              content: getNeedsBlueprintMessage(language),
+              intent: 'qa',
+              timestamp: new Date().toISOString(),
+            };
+            setChatHistory((prev) => [...prev, assistantMsg]);
+            return;
+          }
+
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: chatText, blueprint: null, language }),
+          });
+
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw new Error(errorBody.error || 'Chat assistant route returned failure');
+          }
+
+          const pTokens = parseInt(response.headers.get('X-Prompt-Tokens') || '0');
+          const cTokens = parseInt(response.headers.get('X-Completion-Tokens') || '0');
+          if (pTokens || cTokens) addTokens(pTokens, cTokens);
+
+          const data: { answer: string } = await response.json();
+          const assistantMsg: ChatMessage = {
+            id: `msg-${Date.now()}-qa`,
+            role: 'assistant',
+            content: data.answer,
+            intent: 'qa',
+            timestamp: new Date().toISOString(),
+          };
+          setChatHistory((prev) => [...prev, assistantMsg]);
+          return;
+        }
+
+        if (!isEditRequest) {
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: chatText, blueprint: currentBlueprint, language }),
+          });
+
+          if (!response.ok) {
+            const errorBody = await response.json().catch(() => ({}));
+            throw new Error(errorBody.error || 'Chat assistant route returned failure');
+          }
+
+          const pTokens = parseInt(response.headers.get('X-Prompt-Tokens') || '0');
+          const cTokens = parseInt(response.headers.get('X-Completion-Tokens') || '0');
+          if (pTokens || cTokens) addTokens(pTokens, cTokens);
+
+          const data: { answer: string } = await response.json();
+          const assistantMsg: ChatMessage = {
+            id: `msg-${Date.now()}-qa`,
+            role: 'assistant',
+            content: data.answer,
+            intent: 'qa',
+            timestamp: new Date().toISOString(),
+          };
+          setChatHistory((prev) => [...prev, assistantMsg]);
+          return;
+        }
+
         const response = await fetch('/api/modify-blueprint', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -392,7 +638,14 @@ export function useGenerate(): UseGenerateReturn {
           // 5. Clean up steps with no active involved nodes remaining
           next.steps = next.steps.filter((s: any) => s.involved_nodes && s.involved_nodes.length > 0);
 
-          // 6. Sequential sorting and dynamic re-indexing of step indexes
+          // 6. TechFlow validation pass: ensure newly touched/orphaned nodes are wired into steps.
+          const repairResult = repairTechFlowConnections(
+            next,
+            patch.modifications.nodes_to_add_or_update?.map((modNode: any) => modNode.node_id) || []
+          );
+          const repairedNodeIds = repairResult.repairedNodeIds;
+
+          // 7. Sequential sorting and dynamic re-indexing of step indexes
           next.steps.sort((a: any, b: any) => a.number - b.number);
           next.steps.forEach((step: any, idx: number) => {
             const newNum = idx + 1;
@@ -406,18 +659,27 @@ export function useGenerate(): UseGenerateReturn {
           const assistantMsg: ChatMessage = {
             id: `msg-${Date.now()}-ai`,
             role: 'assistant',
-            content: patch.explanation,
+            content: repairedNodeIds.length > 0
+              ? `${patch.explanation}\n\nTechFlow Inspector: validated and connected ${repairedNodeIds.join(', ')} into the data path.`
+              : patch.explanation,
+            intent: 'modify',
             timestamp: new Date().toISOString(),
           };
           setChatHistory((prev) => [...prev, assistantMsg]);
 
-          // 7. Synchronously re-trigger parallel background insights telemetry without delay
-          await triggerTelemetryInsights(next, language);
+          pendingLanguageRef.current = language;
+          if (!backendStack) {
+            pendingBlueprintRef.current = next;
+            setShowStackSelector(true);
+          } else {
+            await triggerTelemetryInsights(next, language, backendStack);
+          }
         } else {
-          throw new Error('API route returned failure');
+          const errorBody = await response.json().catch(() => ({}));
+          throw new Error(errorBody.error || 'Blueprint modification route returned failure');
         }
       } catch (err: any) {
-        console.error('Failed to patch visual canvas:', err);
+        console.error('Failed to process chat message:', err);
         setChatHistory((prev) => [
           ...prev,
           {
@@ -426,7 +688,8 @@ export function useGenerate(): UseGenerateReturn {
             content:
               language === 'th'
                 ? 'เกิดข้อผิดพลาดในการเชื่อมต่อเพื่อปรับปรุงดีไซน์ระบบ'
-                : 'Failed to apply system graph state modifications.',
+                : `Failed to process chat message: ${err.message || 'Unknown error'}`,
+            intent: 'error',
             timestamp: new Date().toISOString(),
           },
         ]);
@@ -435,7 +698,7 @@ export function useGenerate(): UseGenerateReturn {
         setActiveStage('IDLE');
       }
     },
-    [isGenerating, addTokens, triggerTelemetryInsights]
+    [isGenerating, backendStack, addTokens, triggerTelemetryInsights]
   );
 
   /* ─── Reverse engineering handler ─── */
@@ -477,9 +740,15 @@ export function useGenerate(): UseGenerateReturn {
           blueprintRef.current = parsedBp;
           addLog(data.explanation || 'Project analysis completed successfully!');
 
-          setTimeout(() => {
-            triggerTelemetryInsights(parsedBp, language);
-          }, 1000);
+          pendingLanguageRef.current = language;
+          if (!backendStack) {
+            pendingBlueprintRef.current = parsedBp;
+            setShowStackSelector(true);
+          } else {
+            setTimeout(() => {
+              triggerTelemetryInsights(parsedBp, language, backendStack);
+            }, 1000);
+          }
         } else {
           throw new Error('Reverse engineering server route failure.');
         }
@@ -491,7 +760,7 @@ export function useGenerate(): UseGenerateReturn {
         setActiveStage('IDLE');
       }
     },
-    [addLog, addTokens, triggerTelemetryInsights]
+    [addLog, addTokens, backendStack, triggerTelemetryInsights]
   );
 
   /* ─── Apply preset handler (Standard system architectures instead of website layouts) ─── */
@@ -570,16 +839,21 @@ export function useGenerate(): UseGenerateReturn {
       blueprintRef.current = updatedBlueprint;
       addLog(language === 'th' ? `ประยุกต์ใช้ระบบจองตั๋วสำเร็จ!` : `Successfully loaded system architecture blueprint preset!`);
       
-      // Auto run parallel telemetry insights
-      setTimeout(() => {
-        triggerTelemetryInsights(updatedBlueprint, language, onBroadcast);
-      }, 500);
+      pendingLanguageRef.current = language;
+      if (!backendStack) {
+        pendingBlueprintRef.current = updatedBlueprint;
+        setShowStackSelector(true);
+      } else {
+        setTimeout(() => {
+          triggerTelemetryInsights(updatedBlueprint, language, backendStack, onBroadcast);
+        }, 500);
+      }
     },
-    [addLog, triggerTelemetryInsights]
+    [addLog, backendStack, triggerTelemetryInsights]
   );
 
   const handleGeneratePrompts = useCallback(
-    async (language: 'th' | 'en') => {
+    async (language: 'th' | 'en', customAnswers?: Record<string, string>) => {
       if (!blueprint || isGeneratingPrompts) return;
 
       setIsGeneratingPrompts(true);
@@ -594,7 +868,7 @@ export function useGenerate(): UseGenerateReturn {
         const response = await fetch('/api/generate-prompts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ blueprint, scaleInfo, language }),
+          body: JSON.stringify({ blueprint, scaleInfo, language, answers: customAnswers }),
         });
 
         if (!response.ok) {
@@ -642,7 +916,7 @@ export function useGenerate(): UseGenerateReturn {
     newlyModifiedNodeIds,
     addTokens,
     handleGenerate,
-    handleChatModify,
+    handleChatMessage,
     handleReverseEngineer,
     handleApplyPreset,
     chatHistory,
@@ -653,5 +927,10 @@ export function useGenerate(): UseGenerateReturn {
     setActivePhaseIndex,
     checkedDoD,
     setCheckedDoD,
+    backendStack,
+    setBackendStack,
+    showStackSelector,
+    setShowStackSelector,
+    selectStackAndAnalyze,
   };
 }

@@ -74,6 +74,14 @@ The project includes an advanced, low-latency multiplayer collaboration engine (
 
 ---
 
+## 🌐 Reactive Multi-Agent Localization
+
+The platform features fully integrated, high-fidelity **reactive localization** supporting instant switching between **Thai (TH)** and **English (EN)**.
+* **Premium Header Toggle**: Users can toggle languages instantly via a custom glassmorphism pill selector located on the right side of the main header `<TabBar />`.
+* **Instant Reactive Broadcast**: Swapping languages instantly translates the entire workspace in real-time, including all six SaaS agent panels, logs, active canvas configurations, prompt compiler worksheets, chat panels, and interactive Definition of Done (DoD) checklists.
+
+---
+
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
@@ -119,28 +127,42 @@ npm run dev
 ├── src/
 │   ├── app/
 │   │   ├── api/               # Server-side API endpoints for the 6 Agents
-│   │   │   ├── analyze-resiliency/
-│   │   │   ├── analyze-scale/
-│   │   │   ├── generate-infrastructure-code/
-│   │   │   ├── generate-prompts/
-│   │   │   ├── generate/
-│   │   │   ├── modify-blueprint/
-│   │   │   ├── reverse-engineer/
-│   │   │   └── ...
-│   │   ├── globals.css        # Global CSS + Tailwind styling
-│   │   ├── layout.tsx         # Root Layout
-│   │   └── page.tsx           # Home Workspace Dashboard
-│   ├── components/            # UI components (Canvas, Workspace, Chat, Sidebars)
-│   ├── hooks/                 # Realtime Hooks (Collab, Generate, Session, Playback)
-│   ├── lib/                   # Mock engines & auth structures
-│   ├── types/                 # TypeScript typings
-│   └── utils/                 # Utilities (Partial JSON Parser)
+│   │   │   ├── analyze-resiliency/          # SPOF scanning and resiliency telemetry
+│   │   │   ├── analyze-scale/               # Sizing, hosting budgets, config tuning
+│   │   │   ├── collab-token/                # Live multiplayer crypto HMAC tokens
+│   │   │   ├── generate/                    # Initial blueprint core layout agent
+│   │   │   ├── generate-infrastructure-code/# DevOps Docker/K8s/Terraform generator
+│   │   │   ├── generate-prompts/            # Prompt compiler progressive compiler
+│   │   │   ├── generate-questions/          # Business logic analyst question engine
+│   │   │   ├── get-provider/                # Cookie-based LLM provider configuration
+│   │   │   ├── modify-blueprint/            # Incremental layout modify agent
+│   │   │   ├── reverse-engineer/            # Codebase reverse-engineering static parser
+│   │   │   └── set-provider/                # Secure provider cookie registration
+│   │   ├── archivex/          # Dedicated premium studio dashboard route
+│   │   │   └── page.tsx       # Studio dashboard entry page
+│   │   ├── globals.css        # Global CSS + Space-age adaptive styling
+│   │   ├── layout.tsx         # Root layout configuration
+│   │   └── page.tsx           # Home entry point redirection
+│   ├── components/            # UI components folder
+│   │   ├── archivex/          # Premium layout panels (AppShell, Sidebar, TabBar, Topbar)
+│   │   ├── nodes/             # Custom React Flow canvas nodes (CustomNode, LayerHeaderNode)
+│   │   ├── Canvas.tsx         # Responsive React Flow architecture diagram workspace
+│   │   ├── CodeWorkspace.tsx  # DevOps file viewer & boilerplate source workspace
+│   │   ├── ErrorBoundary.tsx  # Fault-tolerant runtime boundaries
+│   │   ├── PromptWorkspace.tsx# Multi-stage prompt compiler & interactive DoD worksheet
+│   │   ├── ReverseEngineerModal.tsx # ZIP static upload / GitHub link import modal
+│   │   ├── ScaleOptimize.tsx  # Load capacity dashboard & tuned parameter view
+│   │   ├── SettingsModal.tsx  # LLM API keys and model selection settings modal
+│   │   ├── SidebarRightChat.tsx # Real-time interactive AI Architect chat panel
+│   │   └── StackSelectorModal.tsx # Interactive stack selector dialog (Go/Node/Python)
+│   ├── hooks/                 # Custom reactive React Hooks (Collab, Generate, Session, Playback)
+│   ├── lib/                   # Orchestrator clients, mock engines, and auth utilities
+│   ├── types/                 # Standardized TypeScript type contract definitions
+│   └── utils/                 # Utility files (Partial JSON Incremental Parser)
 ├── collab-server.js           # Realtime Multiplayer WebSocket & Redis Server
-├── package.json               # Package setup
-└── AGENTS.md                  # Comprehensive AI Multi-Agent specs & schemas
+├── package.json               # Project metadata, dependencies, and execution scripts
+├── AGENTS.md                  # Comprehensive AI Multi-Agent specs & schemas
+└── CLAUDE.md                  # Developer guidelines and verification checklists
 ```
 
----
 
-## 🛡️ License
-Distributed under the MIT License. See `LICENSE` for more information.

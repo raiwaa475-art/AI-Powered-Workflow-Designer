@@ -55,6 +55,8 @@ export interface UseSessionReturn {
     techStack: string;
     activePhaseIndex?: number;
     checkedDoD?: Record<string, boolean>;
+    businessQuestions?: any[] | null;
+    userAnswers?: Record<string, string>;
   }) => void;
   loadSession: (session: SavedSession) => SavedSession;
   deleteSession: (id: string) => void;
@@ -89,6 +91,8 @@ export function useSession(): UseSessionReturn {
       techStack,
       activePhaseIndex,
       checkedDoD,
+      businessQuestions,
+      userAnswers,
     }: {
       blueprint: WorkflowData | any;
       resiliency: ResiliencyData | null;
@@ -100,6 +104,8 @@ export function useSession(): UseSessionReturn {
       techStack: string;
       activePhaseIndex?: number;
       checkedDoD?: Record<string, boolean>;
+      businessQuestions?: any[] | null;
+      userAnswers?: Record<string, string>;
     }) => {
       if (!blueprint) return;
 
@@ -117,6 +123,8 @@ export function useSession(): UseSessionReturn {
         techStack,
         activePhaseIndex,
         checkedDoD,
+        businessQuestions: businessQuestions || null,
+        userAnswers: userAnswers || {},
       };
 
       setSavedSessions((prev) => {
